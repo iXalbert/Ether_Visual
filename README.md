@@ -45,3 +45,9 @@ source venv/bin/activate
 pip install scapy fastapi uvicorn websockets
 # Rularea necesită drepturi de administrator pe macOS
 sudo ./venv/bin/python3 main.py
+
+---
+
+## ⚖️ Licență și Etică
+
+Acest proiect este dezvoltat strict în scopuri educaționale și de cercetare. Utilizarea EtherVisual pentru monitorizarea rețelelor fără permisiunea explicită a administratorului este strict interzisă și poate fi ilegală.
