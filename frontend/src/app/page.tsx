@@ -1,32 +1,37 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Stars, Text, Float } from '@react-three/drei';
+import { OrbitControls, Stars, Text, Float, PerspectiveCamera } from '@react-three/drei';
 import * as THREE from 'three';
 
-// Componenta pentru un pachet individual care "zboară"
-function Packet({ data }: { data: any }) {
+// --- 1. COMPONENTA PACHET (SFRELE) ---
+function Packet({ data, onFinish }: { data: any; onFinish: () => void }) {
   const mesh = useRef<THREE.Mesh>(null!);
-  
-  // Animăm pachetul să se miște de la stânga la dreapta
+  // Viteza variabilă ca să nu pară robotizat
+  const speed = useMemo(() => Math.random() * 4 + 4, []);
+  const yPos = useMemo(() => (Math.random() - 0.5) * 6, []);
+
   useFrame((state, delta) => {
-    mesh.current.position.x += delta * 5;
-    // Când iese din cadrul vizual, îl putem ascunde/elimina
+    if (mesh.current) {
+      mesh.current.position.x += delta * speed;
+      if (mesh.current.position.x > 10) onFinish();
+    }
   });
 
   return (
-    <mesh ref={mesh} position={[-10, Math.random() * 4 - 2, 0]}>
-      <sphereGeometry args={[0.1, 16, 16]} />
+    <mesh ref={mesh} position={[-10, yPos, 0]}>
+      <sphereGeometry args={[0.15, 16, 16]} />
       <meshStandardMaterial 
-        color={data.proto === 'TCP' ? '#3b82f6' : '#a855f7'} 
-        emissive={data.proto === 'TCP' ? '#3b82f6' : '#a855f7'}
+        color={data.proto === 'TCP' ? '#00f2ff' : '#bc13fe'} 
+        emissive={data.proto === 'TCP' ? '#00f2ff' : '#bc13fe'}
         emissiveIntensity={2}
       />
     </mesh>
   );
 }
 
+// --- 2. PAGINA PRINCIPALĂ ---
 export default function Home() {
   const [packets, setPackets] = useState<any[]>([]);
   const [status, setStatus] = useState('connecting');
@@ -36,51 +41,61 @@ export default function Home() {
     socket.onopen = () => setStatus('connected');
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      // Adăugăm un ID unic pentru React keys
-      setPackets((prev) => [{ ...data, id: Math.random() }, ...prev].slice(0, 20));
+      setPackets((prev) => [...prev, { ...data, id: Math.random() }]);
     };
+    socket.onclose = () => setStatus('disconnected');
     return () => socket.close();
   }, []);
 
   return (
-    <div className="h-screen w-full bg-[#05050a] relative">
-      {/* HUD - Interfața deasupra scenei 3D */}
-      <div className="absolute top-8 left-8 z-10 pointer-events-none">
-        <h1 className="text-4xl font-black text-blue-500 tracking-tighter">ETHERVISUAL 3D</h1>
-        <p className="text-gray-500 font-mono">Status: {status.toUpperCase()}</p>
+    <div style={{ width: '100vw', height: '100vh', background: '#05050a' }}>
+      
+      {/* UI OVERLAY */}
+      <div style={{ position: 'absolute', top: 40, left: 40, zIndex: 10, color: 'white', fontFamily: 'monospace', pointerEvents: 'none' }}>
+        <h1 style={{ fontSize: '2rem', fontWeight: 900, color: '#3b82f6', margin: 0 }}>ETHERVISUAL 3D</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
+          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: status === 'connected' ? '#22c55e' : '#ef4444' }} />
+          <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>{status.toUpperCase()}</span>
+        </div>
       </div>
 
-      {/* Scena 3D */}
-      <Canvas camera={{ position: [0, 0, 10], fov: 50 }}>
-        <color attach="background" args={['#05050a']} />
-        <ambientLight intensity={0.5} />
-        <pointLight position={[10, 10, 10]} />
-        <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
+      {/* CANVAS 3D */}
+      <Canvas shadows={false}>
+        <PerspectiveCamera makeDefault position={[0, 0, 15]} />
+        <OrbitControls />
         
+        {/* Lumini Obligatorii */}
+        <ambientLight intensity={1} />
+        <pointLight position={[10, 10, 10]} intensity={2} />
+        
+        <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
+
+        {/* Marcaje de orientare */}
         <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-          <Text position={[-8, 0, 0]} fontSize={0.5} color="white" font="/font.woff">
-            LOCALHOST
-          </Text>
-          <Text position={[8, 0, 0]} fontSize={0.5} color="white">
-            WORLD
-          </Text>
+          <Text position={[-10, 0, 0]} fontSize={1} color="#3b82f6">LOCAL</Text>
+          <Text position={[10, 0, 0]} fontSize={1} color="#ef4444">WORLD</Text>
         </Float>
 
+        {/* Randare Pachete */}
         {packets.map((p) => (
-          <Packet key={p.id} data={p} />
+          <Packet 
+            key={p.id} 
+            data={p} 
+            onFinish={() => setPackets(prev => prev.filter(item => item.id !== p.id))} 
+          />
         ))}
-
-        <OrbitControls />
       </Canvas>
 
-      {/* Mini-tabel jos pentru debug */}
-      <div className="absolute bottom-8 right-8 w-64 bg-black/50 border border-white/10 p-4 rounded-lg font-mono text-[10px] overflow-hidden">
-        {packets.slice(0, 5).map((p, i) => (
-          <div key={i} className="flex justify-between border-b border-white/5 py-1 text-gray-400">
+      {/* FEED TEXT JOS */}
+      <div style={{ position: 'absolute', bottom: 40, right: 40, width: '250px', background: 'rgba(0,0,0,0.7)', padding: '15px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '10px', fontFamily: 'monospace' }}>
+        <div style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '5px', marginBottom: '10px', color: '#3b82f6' }}>LIVE TRAFFIC</div>
+        {packets.slice(-5).reverse().map((p) => (
+          <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', opacity: 0.8 }}>
             <span>{p.proto}</span>
-            <span className="text-blue-400">{p.size}B</span>
+            <span style={{ color: '#aaa' }}>{p.size}B</span>
           </div>
         ))}
+        {packets.length === 0 && <div style={{ opacity: 0.3 }}>Aștept pachete...</div>}
       </div>
     </div>
   );
