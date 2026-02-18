@@ -1,12 +1,51 @@
 'use client';
 
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, use } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Stars, Text, Float, PerspectiveCamera } from '@react-three/drei';
 import * as THREE from 'three';
+import { velocity } from 'three/tsl';
+import { Nerko_One } from 'next/font/google';
+
+function Explosion({ position, color }: { position: [number, number, number], color: string }) {
+
+    const[particles] = useState(() => {
+      return Array.from({ length: 15 }, () => ({
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 0.1,
+          (Math.random() - 0.5) * 0.1,
+          (Math.random() - 0.5) * 0.1
+        ),
+        pos: new THREE.Vector3(...position)
+      }));
+    });
+
+    const meshRef = useRef<THREE.InstancedMesh>(null!);
+
+    useFrame(() => {
+      if(meshRef.current) {
+        meshRef.current.children.forEach((child,i) => {
+          child.position.copy(particles[i].velocity);
+          child.scale.multiplyScalar(0.95);
+        });
+      }
+    });
+
+    return (
+      <group ref={meshRef}>
+        {particles.map((p,i) => (
+          <mesh key={i} position={[0,0,0]}>
+            <boxGeometry args={[0.05, 0.05, 0.05]} />
+            <meshStandardMaterial color={color} emissive={color} emissiveIntensity={4} />
+          </mesh>
+        ))}
+      </group>
+    );
+      
+}
 
 // --- 1. COMPONENTA PACHET (SFRELE) ---
-function Packet({ data, onFinish }: { data: any; onFinish: () => void }) {
+function Packet({ data, onFinish }: { data: any; onFinish: (pos: [number, number, number]) => void }) {
   const mesh = useRef<THREE.Mesh>(null!);
   // Viteza variabilă ca să nu pară robotizat
   const speed = useMemo(() => Math.random() * 4 + 4, []);
@@ -15,7 +54,9 @@ function Packet({ data, onFinish }: { data: any; onFinish: () => void }) {
   useFrame((state, delta) => {
     if (mesh.current) {
       mesh.current.position.x += delta * speed;
-      if (mesh.current.position.x > 10) onFinish();
+      if (mesh.current.position.x > 10) {
+        onFinish([mesh.current.position.x, mesh.current.position.y, mesh.current.position.z]);
+      }
     }
   });
 
@@ -46,7 +87,19 @@ function Packet({ data, onFinish }: { data: any; onFinish: () => void }) {
 // --- 2. PAGINA PRINCIPALĂ ---
 export default function Home() {
   const [packets, setPackets] = useState<any[]>([]);
+  const [explosions, setExplosions] = useState<any[]>([]);
   const [status, setStatus] = useState('connecting');
+
+  const triggerExplosion = (id: number, pos: [number, number, number], color: string) => {
+    const explosionId = Math.random();
+    setExplosions(prev => [...prev, { id: explosionId, pos, color }]); // Adaugă o nouă explozie
+
+    setPackets(prev => prev.filter(p => p.id !== id)); // Curăță explozia după 1 secundă
+
+    setTimeout(() => {
+      setExplosions(prev => prev.filter(e => e.id !== explosionId));
+    }, 1000);
+  };
 
   useEffect(() => {
     const socket = new WebSocket('ws://127.0.0.1:8000/ws');
@@ -93,8 +146,12 @@ export default function Home() {
           <Packet 
             key={p.id} 
             data={p} 
-            onFinish={() => setPackets(prev => prev.filter(item => item.id !== p.id))} 
+            onFinish={(pos) => triggerExplosion(p.id, pos, p.proto === 'TCP' ? '#00f2ff' : '#bc13fe')} 
           />
+        ))}
+
+        {explosions.map((e) => (
+          <Explosion key={e.id} position={e.pos} color={e.color} />
         ))}
       </Canvas>
 
