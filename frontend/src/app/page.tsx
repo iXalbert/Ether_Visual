@@ -1,170 +1,102 @@
 'use client';
 
-import { useEffect, useState, useRef, useMemo, use } from 'react';
+import { useEffect, useState, useRef, useMemo, Suspense } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Stars, Text, Float, PerspectiveCamera } from '@react-three/drei';
+import { OrbitControls, Stars, Text, PerspectiveCamera, Sphere, useTexture } from '@react-three/drei';
 import * as THREE from 'three';
-import { velocity } from 'three/tsl';
-import { Nerko_One } from 'next/font/google';
 
-function Explosion({ position, color }: { position: [number, number, number], color: string }) {
+// --- UTIL: Conversie Lat/Lon în Vector 3D ---
+const lonLattoVector3 = (lat: number, lon: number, radius: number) => {
+  const phi = (90 - lat) * (Math.PI / 180);
+  const theta = (lon + 180) * (Math.PI / 180);
+  return new THREE.Vector3(
+    -radius * Math.sin(phi) * Math.cos(theta),
+    radius * Math.cos(phi),
+    radius * Math.sin(phi) * Math.sin(theta)
+  );
+};
 
-    const[particles] = useState(() => {
-      return Array.from({ length: 15 }, () => ({
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 0.1,
-          (Math.random() - 0.5) * 0.1,
-          (Math.random() - 0.5) * 0.1
-        ),
-        pos: new THREE.Vector3(...position)
-      }));
-    });
-
-    const meshRef = useRef<THREE.InstancedMesh>(null!);
-
-    useFrame(() => {
-      if(meshRef.current) {
-        meshRef.current.children.forEach((child,i) => {
-          child.position.copy(particles[i].velocity);
-          child.scale.multiplyScalar(0.95);
-        });
-      }
-    });
-
-    return (
-      <group ref={meshRef}>
-        {particles.map((p,i) => (
-          <mesh key={i} position={[0,0,0]}>
-            <boxGeometry args={[0.05, 0.05, 0.05]} />
-            <meshStandardMaterial color={color} emissive={color} emissiveIntensity={4} />
-          </mesh>
-        ))}
-      </group>
-    );
-      
+// --- COMPONENTA GLOB ---
+function EarthGlobe() {
+  const texture = useTexture('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg');
+  return (
+    <Sphere args={[5, 64, 64]}>
+      <meshStandardMaterial map={texture} />
+    </Sphere>
+  );
 }
 
-// --- 1. COMPONENTA PACHET (SFRELE) ---
-function Packet({ data, onFinish }: { data: any; onFinish: (pos: [number, number, number]) => void }) {
-  const mesh = useRef<THREE.Mesh>(null!);
-  // Viteza variabilă ca să nu pară robotizat
-  const speed = useMemo(() => Math.random() * 4 + 4, []);
-  const yPos = useMemo(() => (Math.random() - 0.5) * 6, []);
+// --- COMPONENTA PACHET (ARC) ---
+function ArcPacket({ data, onFinish }: { data: any, onFinish: (pos: THREE.Vector3) => void }) {
+  const meshRef = useRef<THREE.Mesh>(null!);
+  const radius = 5;
+  
+  // Start: București (44.4, 26.1) | End: Din Backend
+  const startPos = useMemo(() => lonLattoVector3(44.4, 26.1, radius), []);
+  const endPos = useMemo(() => lonLattoVector3(data.lat || 0, data.lon || 0, radius), [data]);
+  
+  const curve = useMemo(() => {
+    const mid = startPos.clone().lerp(endPos, 0.5).normalize().multiplyScalar(radius + 2);
+    return new THREE.QuadraticBezierCurve3(startPos, mid, endPos);
+  }, [startPos, endPos]);
+
+  const [progress, setProgress] = useState(0);
 
   useFrame((state, delta) => {
-    if (mesh.current) {
-      mesh.current.position.x += delta * speed;
-      if (mesh.current.position.x > 10) {
-        onFinish([mesh.current.position.x, mesh.current.position.y, mesh.current.position.z]);
-      }
+    const next = progress + delta * 0.6;
+    if (next >= 1) onFinish(endPos);
+    else {
+      setProgress(next);
+      if (meshRef.current) meshRef.current.position.copy(curve.getPoint(next));
     }
   });
 
   return (
-    <group>
-    <mesh ref={mesh} position={[-10, yPos, 0]}>
-      <sphereGeometry args={[0.15, 16, 16]} />
-      <meshStandardMaterial 
-        color={data.proto === 'TCP' ? '#00f2ff' : '#bc13fe'} 
-        emissive={data.proto === 'TCP' ? '#00f2ff' : '#bc13fe'}
-        emissiveIntensity={2}
-      />
-
-      <Text
-        position={[0, 0.4, 0]}
-        fontSize={0.25}
-        color={data.dst.includes('.') && !isNaN(parseInt(data.dst[0])) ? "#666666" : "#ffffff"}
-        anchorX="center"
-        anchorY="bottom"
-      >
-        {data.dst.length > 15 ? data.dst.slice(0, 20) + '...' : data.dst}
-      </Text>
+    <mesh ref={meshRef}>
+      <sphereGeometry args={[0.1, 16, 16]} />
+      <meshStandardMaterial color={data.proto === 'TCP' ? '#00f2ff' : '#bc13fe'} emissive="#ffffff" emissiveIntensity={0.5} />
     </mesh>
-    </group>
   );
 }
 
-// --- 2. PAGINA PRINCIPALĂ ---
+// --- PAGINA PRINCIPALĂ ---
 export default function Home() {
   const [packets, setPackets] = useState<any[]>([]);
-  const [explosions, setExplosions] = useState<any[]>([]);
   const [status, setStatus] = useState('connecting');
-
-  const triggerExplosion = (id: number, pos: [number, number, number], color: string) => {
-    const explosionId = Math.random();
-    setExplosions(prev => [...prev, { id: explosionId, pos, color }]); // Adaugă o nouă explozie
-
-    setPackets(prev => prev.filter(p => p.id !== id)); // Curăță explozia după 1 secundă
-
-    setTimeout(() => {
-      setExplosions(prev => prev.filter(e => e.id !== explosionId));
-    }, 1000);
-  };
 
   useEffect(() => {
     const socket = new WebSocket('ws://127.0.0.1:8000/ws');
     socket.onopen = () => setStatus('connected');
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      setPackets((prev) => [...prev, { ...data, id: Math.random() }]);
+    socket.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      setPackets(prev => [...prev, { ...data, id: Math.random() }].slice(-15));
     };
-    socket.onclose = () => setStatus('disconnected');
     return () => socket.close();
   }, []);
 
   return (
-    <div style={{ width: '100vw', height: '100vh', background: '#05050a' }}>
-      
-      {/* UI OVERLAY */}
-      <div style={{ position: 'absolute', top: 40, left: 40, zIndex: 10, color: 'white', fontFamily: 'monospace', pointerEvents: 'none' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 900, color: '#3b82f6', margin: 0 }}>ETHERVISUAL 3D</h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
-          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: status === 'connected' ? '#22c55e' : '#ef4444' }} />
-          <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>{status.toUpperCase()}</span>
-        </div>
-      </div>
+    <div style={{ width: '100vw', height: '100vh', background: '#000' }}>
+      <Canvas>
+        <Suspense fallback={null}>
+          <PerspectiveCamera makeDefault position={[0, 0, 15]} />
+          <OrbitControls autoRotate autoRotateSpeed={0.3} />
+          
+          <ambientLight intensity={0.7} />
+          <pointLight position={[10, 10, 10]} intensity={2} />
+          
+          <Stars radius={100} depth={50} count={5000} factor={4} fade />
 
-      {/* CANVAS 3D */}
-      <Canvas shadows={false}>
-        <PerspectiveCamera makeDefault position={[0, 0, 15]} />
-        <OrbitControls />
-        
-        {/* Lumini Obligatorii */}
-        <ambientLight intensity={1} />
-        <pointLight position={[10, 10, 10]} intensity={2} />
-        
-        <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
+          <EarthGlobe />
 
-        {/* Marcaje de orientare */}
-        <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-          <Text position={[-10, 0, 0]} fontSize={1} color="#3b82f6">LOCAL</Text>
-          <Text position={[10, 0, 0]} fontSize={1} color="#ef4444">WORLD</Text>
-        </Float>
-
-        {/* Randare Pachete */}
-        {packets.map((p) => (
-          <Packet 
-            key={p.id} 
-            data={p} 
-            onFinish={(pos) => triggerExplosion(p.id, pos, p.proto === 'TCP' ? '#00f2ff' : '#bc13fe')} 
-          />
-        ))}
-
-        {explosions.map((e) => (
-          <Explosion key={e.id} position={e.pos} color={e.color} />
-        ))}
+          {packets.map(p => (
+            <ArcPacket key={p.id} data={p} onFinish={() => setPackets(prev => prev.filter(item => item.id !== p.id))} />
+          ))}
+        </Suspense>
       </Canvas>
-
-      {/* FEED TEXT JOS */}
-      <div style={{ position: 'absolute', bottom: 40, right: 40, width: '250px', background: 'rgba(0,0,0,0.7)', padding: '15px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '10px', fontFamily: 'monospace' }}>
-        <div style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '5px', marginBottom: '10px', color: '#3b82f6' }}>LIVE TRAFFIC</div>
-        {packets.slice(-5).reverse().map((p) => (
-          <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', opacity: 0.8 }}>
-            <span>{p.proto}</span>
-            <span style={{ color: '#aaa' }}>{p.size}B</span>
-          </div>
-        ))}
-        {packets.length === 0 && <div style={{ opacity: 0.3 }}>Aștept pachete...</div>}
+      
+      <div style={{ position: 'absolute', top: 20, left: 20, color: '#3b82f6', fontFamily: 'monospace' }}>
+        <h2>ETHERVISUAL GLOBE</h2>
+        <p style={{ color: status === 'connected' ? 'lime' : 'red' }}>{status.toUpperCase()}</p>
       </div>
     </div>
   );

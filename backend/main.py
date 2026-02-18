@@ -5,7 +5,7 @@ from scapy.all import sniff, IP, TCP, UDP, conf
 import threading
 import uvicorn
 import socket
-
+import requests
 
 # Configurare macOS pentru Scapy
 conf.use_pcap = True
@@ -23,6 +23,15 @@ clients = []
 loop = None
 ip_cache = {}
 
+def get_ip_location(ip):
+    try:
+        response = requests.get(f"https://ip-api.com/json/{ip}").json() #se folosesste un api gratuit pentur locatie
+        if response.get("status") == "success":
+            return response["lat"], response["lon"]
+    except:
+        pass
+    return 0,0 #default locatione 
+
 def get_domain(ip):
     if ip in ip_cache:
         return ip_cache[ip]
@@ -39,6 +48,8 @@ def packet_callback(packet):
         #src_ip = packet[IP].src
         dst_ip = packet[IP].dst
 
+        lat,lon = get_ip_location(dst_ip)
+
         dst_name = get_domain(dst_ip)
 
         data = {
@@ -48,6 +59,10 @@ def packet_callback(packet):
             "proto": "TCP" if packet.haslayer(TCP) else "UDP" if packet.haslayer(UDP) else "Other",
             "size": len(packet)
         }
+
+        data["lat"] = lat
+        data["lon"] = lon
+        
         if loop:
             for client in clients:
                 asyncio.run_coroutine_threadsafe(client.send_json(data), loop)
