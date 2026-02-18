@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from scapy.all import sniff, IP, TCP, UDP, conf
 import threading
 import uvicorn
+import socket
+
 
 # Configurare macOS pentru Scapy
 conf.use_pcap = True
@@ -19,12 +21,30 @@ app.add_middleware(
 
 clients = []
 loop = None
+ip_cache = {}
+
+def get_domain(ip):
+    if ip in ip_cache:
+        return ip_cache[ip]
+    try:
+        domain_name = socket.gethostbyaddr(ip)[0] #cauta domeniul 
+        ip_cache[ip] = domain_name
+        return domain_name
+    except:
+        ip_cache[ip] = ip
+        return ip
 
 def packet_callback(packet):
     if packet.haslayer(IP):
+        #src_ip = packet[IP].src
+        dst_ip = packet[IP].dst
+
+        dst_name = get_domain(dst_ip)
+
         data = {
             "src": packet[IP].src,
-            "dst": packet[IP].dst,
+            "dst": dst_name,
+            #"dst_name": dst_name,
             "proto": "TCP" if packet.haslayer(TCP) else "UDP" if packet.haslayer(UDP) else "Other",
             "size": len(packet)
         }

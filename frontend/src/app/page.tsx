@@ -20,6 +20,7 @@ function Packet({ data, onFinish }: { data: any; onFinish: () => void }) {
   });
 
   return (
+    <group>
     <mesh ref={mesh} position={[-10, yPos, 0]}>
       <sphereGeometry args={[0.15, 16, 16]} />
       <meshStandardMaterial 
@@ -27,7 +28,18 @@ function Packet({ data, onFinish }: { data: any; onFinish: () => void }) {
         emissive={data.proto === 'TCP' ? '#00f2ff' : '#bc13fe'}
         emissiveIntensity={2}
       />
+
+      <Text
+        position={[0, 0.4, 0]}
+        fontSize={0.25}
+        color={data.dst.includes('.') && !isNaN(parseInt(data.dst[0])) ? "#666666" : "#ffffff"}
+        anchorX="center"
+        anchorY="bottom"
+      >
+        {data.dst.length > 15 ? data.dst.slice(0, 20) + '...' : data.dst}
+      </Text>
     </mesh>
+    </group>
   );
 }
 
